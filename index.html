@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Resumizing-Resume</title>
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.3.1/css/bootstrap.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <style>
+        body {
+            background-color: #f5f5f5;
+        }
+        .chat-container {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .chat-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .chat-box {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 10px;
+            background: #f9f9f9;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 80%;
+        }
+        .user-message {
+            background: #007bff;
+            color: #fff;
+            margin-left: auto;
+        }
+        .bot-message {
+            background: #e9ecef;
+            color: #333;
+            margin-right: auto;
+        }
+        .input-group {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h2>Resumizing-Resume</h2>
+        </div>
+        <div class="chat-box" id="chatBox"></div>
+        <div class="input-group">
+            <input
+                type="text"
+                class="form-control"
+                id="userInput"
+                placeholder="Enter your question" />
+            <div class="input-group-append">
+                <button class="btn btn-success" onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+        <div class="input-group mt-3">
+            <input
+                type="file"
+                class="form-control"
+                id="pdfInput"
+                accept="application/pdf"
+                onchange="handlePDFUpload(event)" />
+            <div class="input-group-append">
+                <button class="btn btn-primary" onclick="clearPDFInput()">Clear PDF</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load chat history from localStorage
+        const chatBox = document.getElementById('chatBox');
+        const chatHistory = JSON.parse(localStorage.getItem('chatHistory')) || [];
+        chatHistory.forEach(message => appendMessage(message.role, message.content));
+
+        let resumeContent = ''; // Store extracted resume content
+
+        async function sendMessage() {
+            const input = document.getElementById('userInput');
+            const userMessage = input.value.trim();
+            if (!userMessage) {
+                alert('Please enter a message.');
+                return;
+            }
+
+            // Append user message to chat
+            appendMessage('user', userMessage);
+            input.value = ''; // Clear input field
+
+            // Show loading indicator
+            appendMessage('bot', 'Loading...');
+
+            try {
+                // Include resume content in the API request if available
+                const messages = [{ role: 'user', content: userMessage }];
+                if (resumeContent) {
+                    messages.unshift({ role: 'user', content: `Resume Content: ${resumeContent}` });
+                }
+
+                const response = await fetch(
+                    'https://openrouter.ai/api/v1/chat/completions',
+                    {
+                        method: 'POST',
+                        headers: {
+                            Authorization: 'Bearer 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',
+                            'HTTP-Referer': 'https://www.sitename.com',
+                            'X-Title': 'SiteName',
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            model: 'deepseek/deepseek-r1:free',
+                            messages: messages,
+                        }),
+                    },
+                );
+                const data = await response.json();
+                const botMessage = data.choices?.[0]?.message?.content || 'No response received.';
+
+                // Replace loading message with bot response
+                chatBox.lastChild.remove();
+                appendMessage('bot', botMessage);
+
+                // Save chat history to localStorage
+                chatHistory.push({ role: 'user', content: userMessage });
+                chatHistory.push({ role: 'bot', content: botMessage });
+                localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+            } catch (error) {
+                chatBox.lastChild.remove();
+                appendMessage('bot', 'Error: ' + error.message);
+            }
+        }
+
+        async function handlePDFUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function (e) {
+                const pdfData = new Uint8Array(e.target.result);
+                const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+                let extractedText = '';
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    extractedText += textContent.items.map(item => item.str).join(' ');
+                }
+
+                // Store extracted resume content
+                resumeContent = extractedText;
+                appendMessage('user', `Resume uploaded successfully.`);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function clearPDFInput() {
+            document.getElementById('pdfInput').value = '';
+            resumeContent = ''; // Clear stored resume content
+            appendMessage('user', 'Resume cleared.');
+        }
+
+        function appendMessage(role, content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message');
+            messageDiv.classList.add(role === 'user' ? 'user-message' : 'bot-message');
+            messageDiv.innerHTML = marked.parse(content);
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight; // Scroll to bottom
+        }
+    </script>
+</body>
+</html>
